@@ -23,6 +23,7 @@ library(tidyr)
 library(purrr)
 library(janitor)
 library(stringr)
+library(forcats)
 library(modelsummary)
 library(questionr)
 #graficos
@@ -31,10 +32,14 @@ library(scales)
 library(wesanderson)
 #mapas
 library(geobr)
+library(sf)
 library(ggspatial)
 library(ggpubr)
 #tabelas
 library(knitr)
+#moran
+library(spdep)
+library(adespatial)
 ```
 
 Neste relatório, será apresentada uma análise exploratória dos microdrados de anomalias congênitas obtidos das bases do Sistema de Informações sobre Nascidos Vivos (SINASC), previamente tratadas pela PCDaS com base no fluxo ETL (Extract, Transform e Load). Para a extração dos microdados, foram considerados todos os casos datados de 2011 a 2020 em que `IDANOMAL = 1 (Sim)` ou existia alguma resposta válida para `CODANOMAL`.
@@ -50,7 +55,7 @@ Nesta seção, encontra-se o dicionário das variáveis que compõem as bases de
 Para as análises subsequentes, foram selecionados somente os casos em que o recém-nascido (RN) foi registrado com pelo menos uma CID-10 que faz parte do Capítulo XVII. Malformações congênitas, deformidades e anomalias cromossômicas (Q000-Q999) **ou** com a CID-10 D180, cuja descrição é hemangioma de qualquer localização.
 
 ```{r}
-d_anom <- readr::read_csv("01.dados/anomalias/microdados_ac_11-20.csv.gz") |> 
+d_anom <- readr::read_csv("01.data/anomalias/microdados_ac_11-20.csv.gz") |> 
   # selecionando anos de 2011 a 2020 e apenas cids do capitulo xvii + d180
   filter(
     as.numeric(ano_nasc) > 2010,
@@ -434,7 +439,7 @@ O número total de RNs registrados somente com malformações menores é de 47.4
 ### malformacoes menores ###
 
 dados_malf_men <- d_anom |> 
-  select(malf2, malf3, malf4, malf5, malf6, malf7) |> 
+  dplyr::select(malf2, malf3, malf4, malf5, malf6, malf7) |> 
   # transformando 'menor' em 1 e 'maior' em zero
   mutate(
     malf2 = as.numeric(ifelse(malf2 == "menor", 1, 0)),
@@ -457,7 +462,7 @@ d_anom <- d_anom |>
 ### malformacoes maiores ###
 
 dados_malf_maior <- d_anom |> 
-  select(malf2, malf3, malf4, malf5, malf6, malf7) |> 
+  dplyr::select(malf2, malf3, malf4, malf5, malf6, malf7) |> 
   # transformando 'maior' em 1 e 'menor' em zero
   mutate(
     malf2 = as.numeric(ifelse(malf2 == "maior", 1, 0)),
@@ -506,7 +511,7 @@ Código omitido. Verificar no arquivo `anom.Rmd`.
 # d <- d_anom |>
 #   # removendo malformacoes menores
 #   filter(ind_malf_maior != "só menor") |>
-#   select(coda2:coda6, coda7, malf2:malf7) |>
+#   dplyr::select(coda2:coda6, coda7, malf2:malf7) |>
 #   mutate(
 #     id = 1:179182,
 #     result2 = ifelse(is.na(coda2), 0, 1), #coda2
@@ -892,7 +897,7 @@ Tabela com as principais medidas resumo das variáveis **número de consultas de
 
 ```{r}
 vas_num <- d_anom |>  
-  select(CONSPRENAT, IDADEMAE, PESO, SEMAGESTAC)
+  dplyr::select(CONSPRENAT, IDADEMAE, PESO, SEMAGESTAC)
 
 datasummary_skim(data = vas_num) |> 
   tinytable::theme_tt("tabular")
@@ -1146,11 +1151,11 @@ Para calcular os percentuais por ano, foi dividido o total de malformações (ú
 ```{r}
 # carregando dados nascidos 11-20
 
-nascidos_por_ano <- fs::dir_ls("01.dados/nascidos/", glob = "*.csv")
+nascidos_por_ano <- fs::dir_ls("01.data/nascidos/", glob = "*.csv")
 
 dados_nascidos <- map(nascidos_por_ano, readr::read_csv2) |> 
   list_rbind() |> 
-  select(`ano (nome)`, `localidade (nome)`, Ano) |> 
+  dplyr::select(`ano (nome)`, `localidade (nome)`, Ano) |> 
   rename(ano_nasc = `ano (nome)`, local = `localidade (nome)`, total = Ano) |> 
   mutate(
     ano_nasc = as.character(ano_nasc),
@@ -1185,7 +1190,7 @@ d_anom$res_NOME_UF <- recode(
 dados_nasc_ano <- dados_nascidos |> 
   # selecionando os totais de nascidos por ano
   filter(local == "Brasil") |> 
-  select(-c(local, nivel))
+  dplyr::select(-c(local, nivel))
 
 malf_ano <- d_anom |> 
   mutate(ano_nasc = as.character(ano_nasc)) |> 
@@ -1225,7 +1230,7 @@ ggplot(malf_ano, aes(x = ano_nasc, y = prev,
 dados_nasc_ano_reg <- dados_nascidos |> 
   # selecionando os totais de nascidos por ano e regiao
   filter(nivel == "região" ) |> 
-  select(-nivel)
+  dplyr::select(-nivel)
 
 malf_ano_reg <- d_anom |> 
   mutate(ano_nasc = as.character(ano_nasc)) |> 
@@ -1276,7 +1281,7 @@ ggplot(malf_ano_reg, aes(x = ano_nasc, y = local, fill = prev)) +
 dados_nasc_ano_uf <- dados_nascidos |> 
   # selecionando os totais de nascidos por ano e regiao
   filter(nivel == "estado" ) |> 
-  select(-nivel)
+  dplyr::select(-nivel)
 
 malf_ano_uf <- d_anom |> 
   mutate(ano_nasc = as.character(ano_nasc)) |> 
@@ -1332,13 +1337,13 @@ ggplot(malf_ano_uf, aes(x = ano_nasc, y = local, fill = prev)) +
 
 Nesta seção, encontram-se as tabelas de frequências e gráficos de barras das malformações congênitas prioritárias, segundo grupos e subgrupos definidos pela EUROCAT.
 
-Para calcular as frequências (percentuais) das malformações congênitas, foi feita a razão entre o número de ocorrência de cada malformação e o total (soma) de ocorrência de todas as malformações. Para calcular as frequências (percentuais) dos grupos de malformações congênitas, o raciocínio foi análogo.
+Para calcular as frequências (percentuais) das malformações congênitas, foi feita a razão entre o número de ocorrência de cada malformação e o total (soma) de ocorrência de todas as malformações. Para calcular as frequências dos grupos de malformações congênitas, o raciocínio foi análogo.
 
 ### Tabela de frequências para as malformações congênitas
 
 Código omitido. Verificar no arquivo `anom.Rmd`.
 
-Resultado omitido. Foi gerado o arquivo `tab_freqs.xlsx`.
+Resultado omitido. Foi gerado o arquivo `02.results/tables/tab_freqs.xlsx`.
 
 ```{r echo=FALSE}
 # classificando cids multiplas em uma unica cid, segundo a eurocat
@@ -2325,17 +2330,17 @@ d_anom <- d_anom |>
 
 d_recod <- readxl::read_excel("tab_auxiliares/coda_recod.xlsx") |>
   rename(cid10_coa = `...4`) |>
-  select(cid10, cid10_coa)
+  dplyr::select(cid10, cid10_coa)
 
 # tabela com os nomes das cids
 
 d_nomes <- readxl::read_xlsx("tab_auxiliares/cid10_eurocat.xlsx", sheet = 1) |>
-  select(categoria_cid10, categoria)
+  dplyr::select(categoria_cid10, categoria)
 
 # transformando dados em formato longo
 
 d_coda <- d_anom |>
-  select(cf2:cf7)
+  dplyr::select(cf2:cf7)
 
 d_long <- d_coda |>
   pivot_longer(
@@ -2399,23 +2404,23 @@ freqs_sssgrupo <- freqs_cid10 |>
 
 ```{r}
 readxl::read_xlsx("tab_auxiliares/freqs_cid10_eurocat.xlsx", skip = 1) |> 
-  mutate(
-    grupo = case_when(
-      grupo == "Membros" ~ "Limbs",
-      grupo == "Sistema nervoso" ~ "Nervous system",
-      grupo == "Cardiopatias" ~ "Congenital heart defect",
-      grupo == "Fendas oro-faciais" ~ "Cleft lip and cleft palate",
-      grupo == "Genitália" ~ "Genital organs", 
-      grupo == "Outros" ~ "Other congenital anomalies",
-      grupo == "Sistema digestivo" ~ "Digestive system",
-      grupo == "Defeitos de parede abdominal" ~ "Abdominal wall defects",
-      grupo == "Sistema urinário" ~ "Urinary system",
-      grupo == "Respiratórias" ~ "Respiratory system",
-      grupo == "Orelha, face e pescoço" ~ "Ear, face and neck",
-      grupo == "Olhos" ~ "Eyes",
-      TRUE ~ NA_character_
-    )
-  ) |> 
+  # mutate(
+  #   grupo = case_when(
+  #     grupo == "Membros" ~ "Limbs",
+  #     grupo == "Sistema nervoso" ~ "Nervous system",
+  #     grupo == "Cardiopatias" ~ "Congenital heart defect",
+  #     grupo == "Fendas oro-faciais" ~ "Cleft lip and cleft palate",
+  #     grupo == "Genitália" ~ "Genital organs", 
+  #     grupo == "Outros" ~ "Other congenital anomalies",
+  #     grupo == "Sistema digestivo" ~ "Digestive system",
+  #     grupo == "Defeitos de parede abdominal" ~ "Abdominal wall defects",
+  #     grupo == "Sistema urinário" ~ "Urinary system",
+  #     grupo == "Respiratórias" ~ "Respiratory system",
+  #     grupo == "Orelha, face e pescoço" ~ "Ear, face and neck",
+  #     grupo == "Olhos" ~ "Eyes",
+  #     TRUE ~ NA_character_
+  #   )
+  # ) |> 
   group_by(grupo) |> 
   summarise(n = sum(n)) |>
   mutate(
@@ -2424,14 +2429,14 @@ readxl::read_xlsx("tab_auxiliares/freqs_cid10_eurocat.xlsx", skip = 1) |>
   ) |> 
   ggplot() +
     geom_col(aes(x = grupo, y = `%`, fill = grupo)) + 
-    labs(y = "Frequency (%)", fill = "Anomalies:") + 
+    labs(y = "Frequência (%)", fill = "Grupo:") + 
     geom_label(
       aes(grupo, `%`, label = sprintf("%.2f", `%`), fill = grupo), 
       position = position_dodge(width = .9), vjust = 1.2, size = 7, color = "#000000", 
       show.legend = FALSE
     ) +
     scale_y_continuous(breaks = seq(0, 40, by = 5)) +
-    scale_fill_manual(values = wes_palette("Zissou1", 12, type = "continuous")) +
+    scale_fill_manual(values = rev(wes_palette("Zissou1", 12, type = "continuous"))) +
     theme_bw() +
     theme(
       text = element_text(size = 20),
@@ -2447,21 +2452,21 @@ readxl::read_xlsx("tab_auxiliares/freqs_cid10_eurocat.xlsx", skip = 1) |>
 ```{r}
 tab_cid10 |> 
   slice(1:10) |> 
-  mutate(
-    categoria = case_when(
-      cid10 == "Q699" ~ "Polydactyly, unspecified",
-      cid10 == "Q690" ~ "Accessory finger(s)",
-      cid10 == "Q549" ~ "Hypospadias, unspecified",
-      cid10 == "Q359" ~ "Cleft palate, unspecified",
-      cid10 == "Q793" ~ "Gastroschisis",
-      cid10 == "Q02X" ~ "Microcephaly",
-      cid10 == "Q039" ~ "Congenital hydrocephalus, unspecified",
-      cid10 == "Q059" ~ "Spina bifida, unspecified",
-      cid10 == "Q249" ~ "Congenital malformation of heart, unspecified",
-      cid10 == "Q211" ~ "Atrial septal defect",
-      TRUE ~ NA_character_
-    )
-  ) |> 
+  # mutate(
+  #   categoria = case_when(
+  #     cid10 == "Q699" ~ "Polydactyly, unspecified",
+  #     cid10 == "Q690" ~ "Accessory finger(s)",
+  #     cid10 == "Q549" ~ "Hypospadias, unspecified",
+  #     cid10 == "Q359" ~ "Cleft palate, unspecified",
+  #     cid10 == "Q793" ~ "Gastroschisis",
+  #     cid10 == "Q02X" ~ "Microcephaly",
+  #     cid10 == "Q039" ~ "Congenital hydrocephalus, unspecified",
+  #     cid10 == "Q059" ~ "Spina bifida, unspecified",
+  #     cid10 == "Q249" ~ "Congenital malformation of heart, unspecified",
+  #     cid10 == "Q211" ~ "Atrial septal defect",
+  #     TRUE ~ NA_character_
+  #   )
+  # ) |> 
   mutate(
     cid10 = forcats::fct_reorder(cid10, -as.numeric(`%`)),
     categoria = forcats::fct_reorder(categoria, -as.numeric(`%`))
@@ -2469,14 +2474,14 @@ tab_cid10 |>
   # grafico de barras
   ggplot() +
     geom_col(aes(x = cid10, y = as.numeric(`%`), fill = categoria)) + 
-    labs(x = "CID-10", y = "Frequency (%)", fill = "Description:") + 
+    labs(x = "CID-10", y = "Frequência (%)", fill = "Descrição:") + 
     geom_label(
       aes(cid10, as.numeric(`%`), label = sprintf("%.2f", as.numeric(`%`)), fill = categoria), 
       position = position_dodge(width = .9), vjust = 1.2, size = 7, color = "#000000", 
       show.legend = FALSE
     ) +
     scale_y_continuous(breaks = seq(0, 10, by = 2)) +
-    scale_fill_manual(values = wes_palette("Zissou1", 10, type = "continuous")) +
+    scale_fill_manual(values = rev(wes_palette("Zissou1", 10, type = "continuous"))) +
     theme_bw() +
     theme(
       text = element_text(size = 20),
@@ -2497,12 +2502,12 @@ Para calcular as prevalência dos grupos de malformações congênitas, foi feit
 
 Código omitido. Verificar no arquivo `anom.Rmd`.
 
-Resultado omitido. Foi gerado o arquivo `tab_prevs.xlsx`.
+Resultado omitido. Foi gerado o arquivo `tbl01.xlsx`.
 
 ```{r echo=FALSE}
 # carregando microdados do sinasc (2011 a 2020)
 
-d_sinasc <- readr::read_csv("01.dados/sinasc/sinasc_11-20[microdatasus].csv.gz") 
+d_sinasc <- readr::read_csv("01.data/sinasc/sinasc_11-20[microdatasus].csv.gz") 
 
 # categorizando variaveis
 
@@ -2552,7 +2557,7 @@ d_sinasc <- d_sinasc |>
     )
   ) |> 
   # selecionando somente variaveis de interesse
-  select(ends_with("_m"))
+  dplyr::select(ends_with("_m"))
 
 ### calculando o numero total de nv, por variavel ###
 
@@ -2638,7 +2643,7 @@ d_all_nv <- n_par |>
 # incluindo informacoes de grupos a base de anomalias congenitas
 
 d_anom_gr <- d_anom |> 
-  select(
+  dplyr::select(
     res_NOME_UF,
     cf2:cf7, 
     racacor_mae, def_escol_mae, def_est_civil, 
@@ -2646,31 +2651,31 @@ d_anom_gr <- d_anom |>
     def_sexo
   ) |> 
   # cf2
-  left_join(freqs_cid10 |> select(cid10, grupo), by = join_by(cf2 == cid10)) |> 
+  left_join(freqs_cid10 |> dplyr::select(cid10, grupo), by = join_by(cf2 == cid10)) |> 
   rename(g2 = grupo) |> 
   relocate(cf2, g2) |> 
   # cf3
-  left_join(freqs_cid10 |> select(cid10, grupo), by = join_by(cf3 == cid10)) |> 
+  left_join(freqs_cid10 |> dplyr::select(cid10, grupo), by = join_by(cf3 == cid10)) |> 
   rename(g3 = grupo) |> 
   relocate(cf2, g2, cf3, g3) |> 
   # cf4
-  left_join(freqs_cid10 |> select(cid10, grupo), by = join_by(cf4 == cid10)) |> 
+  left_join(freqs_cid10 |> dplyr::select(cid10, grupo), by = join_by(cf4 == cid10)) |> 
   rename(g4 = grupo) |> 
   relocate(cf2, g2, cf3, g3, cf4, g4) |> 
   # cf5
-  left_join(freqs_cid10 |> select(cid10, grupo), by = join_by(cf5 == cid10)) |> 
+  left_join(freqs_cid10 |> dplyr::select(cid10, grupo), by = join_by(cf5 == cid10)) |> 
   rename(g5 = grupo) |> 
   relocate(cf2, g2, cf3, g3, cf4, g4, cf5, g5) |> 
   # cf6
-  left_join(freqs_cid10 |> select(cid10, grupo), by = join_by(cf6 == cid10)) |> 
+  left_join(freqs_cid10 |> dplyr::select(cid10, grupo), by = join_by(cf6 == cid10)) |> 
   rename(g6 = grupo) |> 
   relocate(cf2, g2, cf3, g3, cf4, g4, cf5, g5, cf6, g6) |> 
   # cf7
-  left_join(freqs_cid10 |> select(cid10, grupo), by = join_by(cf7 == cid10)) |> 
+  left_join(freqs_cid10 |> dplyr::select(cid10, grupo), by = join_by(cf7 == cid10)) |> 
   rename(g7 = grupo) |> 
   relocate(cf2, g2, cf3, g3, cf4, g4, cf5, g5, cf6, g6, cf7, g7) |> 
   # removendo variaveis de cid-10
-  select(-c(starts_with("cf")))
+  dplyr::select(-c(starts_with("cf")))
 
 # transformando variaveis de grupos em formato longo
 
@@ -2779,9 +2784,9 @@ prev_anc <- left_join(d_all_anom, d_all_nv, by = c("va", "categoria")) |>
 
 ### Mapas da distribuição de prevalência dos grupos de malformações congênitas
 
-Código omitido. Verificar no arquivo `analise_descritiva[2024-02-09].Rmd`.
+Código omitido. Verificar no arquivo `anom.Rmd`.
 
-Resultado omitido. Foi gerado o arquivo `g_map.png`.
+Resultado omitido. Foi gerado o arquivo `02.results/figures/others_masters-thesis/g_map.png`.
 
 ```{r echo=FALSE}
 # calculando o numero de anomalias, por uf e grupo
@@ -3049,12 +3054,501 @@ g12 <- ggplot(d_geobr |> filter(grupo_eur == "Sistema urinário"), aes(fill = pr
 
 \newpage
 
-# 10. Análise AACP
+# 10. Tabela das razões de prevalência, testes Qui-quadrado e V de Cramér
 
-Nesta seção, a variação percentual média anual (Average Annual Percent Change - AACP, em inglês), por grupo de malformação, é realizada.
+Nesta seção, foram calculadas as razões de prevalência de anomalias congênitas maiores entre características maternas, da gestação, do parto e do RN. Além disso, foram realizados testes Qui-quadrado e a medida de associação V de Cramér.
+
+Código omitido. Verificar no arquivo `anom.Rmd`.
+
+Resultado omitido. Foi gerado o arquivo `02.results/others_masters-thesis/tbl05.xlsx`.
+
+```{r echo=FALSE}
+# organiza as variáveis e as categorias
+tab_geral <- prev_all |>
+  mutate(
+    va = factor(va, levels = sort(unique(va)))
+  ) |>
+  mutate(
+    ordem_cat = case_when(
+      va == "parto" & categoria == "Cesáreo" ~ 1,
+      va == "parto" & categoria == "Vaginal" ~ 2,
+      va == "sexo" & categoria == "Feminino" ~ 1,
+      va == "sexo" & categoria == "Masculino" ~ 2,
+      va == "gravidez" & categoria == "Única" ~ 1,
+      va == "gravidez" & categoria == "Dupla" ~ 2,
+      va == "gravidez" & categoria == "Tripla ou mais" ~ 3,
+      va == "racacormae" & categoria == "Amarela" ~ 1,
+      va == "racacormae" & categoria == "Branca" ~ 2,
+      va == "racacormae" & categoria == "Indígena" ~ 3,
+      va == "racacormae" & categoria == "Parda" ~ 4,
+      va == "racacormae" & categoria == "Preta" ~ 5,
+      va == "escmae" & categoria == "Nenhuma" ~ 1,
+      va == "escmae" & categoria == "1 a 3 anos" ~ 2,
+      va == "escmae" & categoria == "4 a 7 anos" ~ 3,
+      va == "escmae" & categoria == "8 a 11 anos" ~ 4,
+      va == "escmae" & categoria == "12 e mais" ~ 5,
+      va == "estcivmae" & categoria == "Casado" ~ 1,
+      va == "estcivmae" & categoria == "Separado Judic./Divorciado" ~ 2,
+      va == "estcivmae" & categoria == "Solteiro" ~ 3,
+      va == "estcivmae" & categoria == "União consensual" ~ 4,
+      va == "estcivmae" & categoria == "Viúvo" ~ 5,
+      va == "consultas" & categoria == "Nenhuma" ~ 1,
+      va == "consultas" & categoria == "de 1 a 3" ~ 2,
+      va == "consultas" & categoria == "de 4 a 6" ~ 3,
+      va == "consultas" & categoria == "7 e mais" ~ 4,
+      va == "gestacao" & categoria == "Menos de 22 semanas" ~ 1,
+      va == "gestacao" & categoria == "22 a 27 semanas" ~ 2,
+      va == "gestacao" & categoria == "28 a 31 semanas" ~ 3,
+      va == "gestacao" & categoria == "32 a 36 semanas" ~ 4,
+      va == "gestacao" & categoria == "37 a 41 semanas" ~ 5,
+      va == "gestacao" & categoria == "42 semanas e mais" ~ 6,
+      TRUE ~ 999
+    )
+  ) |>
+  arrange(va, ordem_cat) |>
+  select(-ordem_cat)
+
+# testes e rp para anomalias gerais
+resultado_geral <- tab_geral |>
+  mutate(
+    n_geral = as.numeric(n_geral),
+    n_nasc = as.numeric(n_nasc),
+    prev = as.numeric(gsub(",", ".", prev))
+  ) |>
+  group_by(va) |>
+  group_modify(~ {
+    # Identifica a variável deste grupo
+    variavel <- as.character(.y$va[[1]])
+    
+    # define as novas referências
+    categoria_referencia <- switch(
+      variavel,
+      gestacao = "37 a 41 semanas",
+      racacormae = "Parda",
+      NA_character_
+    )
+    
+    # para as demais vas, mantem a primeira categoria
+    if (is.na(categoria_referencia)) {
+      ref <- .x |> slice(1)
+    } else {
+      ref <- .x |>
+        filter(categoria == categoria_referencia)
+    }
+    
+    # confere se existe exatamente uma linha de referencia
+    if (nrow(ref) != 1L) {
+      stop(
+        "Referência ausente ou duplicada para a variável: ",
+        variavel
+      )
+    }
+    
+    # tabela de contingencia
+    tab <- cbind(
+      casos = .x$n_geral,
+      nao_casos = .x$n_nasc - .x$n_geral
+    )
+
+    rownames(tab) <- .x$categoria
+
+    # teste qui-quadrado e v de cramer
+    teste <- chisq.test(tab)
+    V <- effectsize::cramers_v(tab)
+
+    # razao de prevalencias e ic95%
+    rp <- .x |>
+      mutate(
+        prev_prop = n_geral / n_nasc,
+        categoria_ref = ref$categoria,
+        prev_ref = ref$n_geral / ref$n_nasc,
+        eh_referencia = categoria == categoria_ref,
+        RP = if_else(eh_referencia, NA_real_, prev_prop / prev_ref),
+        se_log_RP = sqrt((1 / n_geral) - (1 / n_nasc) + (1 / ref$n_geral) - (1 / ref$n_nasc)),
+        # a categoria de referencia fica sem ic95%
+        RP_ic95_inf = if_else(eh_referencia, NA_real_, exp(log(RP) - 1.96 * se_log_RP)),
+        RP_ic95_sup = if_else(eh_referencia, NA_real_, exp(log(RP) + 1.96 * se_log_RP)),
+        sig_RP = case_when(
+          eh_referencia ~ "referência",
+          RP_ic95_inf > 1 ~ "maior que referência",
+          RP_ic95_sup < 1 ~ "menor que referência",
+          TRUE ~ "não significativo"
+        )
+      )
+
+    # seleciona e formata as colunas finais
+    rp |>
+      transmute(
+        categoria,
+        n_geral,
+        n_nasc,
+        prev = round(prev, 2),
+        categoria_ref,
+        RP = round(RP, 2),
+        RP_ic95_inf = round(RP_ic95_inf, 2),
+        RP_ic95_sup = round(RP_ic95_sup, 2),
+        sig_RP,
+        p_quiquadrado = ifelse(
+          teste$p.value < 0.001,
+          "<0.001",
+          sprintf("%.3f", teste$p.value)
+        ),
+        V_cramer = round(as.numeric(V$Cramers_v), 2)
+      )
+  }) |>
+  ungroup()
+```
+
+\newpage
+
+# 11. Análise AACP
+
+Nesta seção, a variação percentual média anual (Average Annual Percent Change - AACP, em inglês), por grupo de malformação congênita, é realizada.
 
 Código otimido. Verificar no arquivo `anom_supp.Rmd`.
 
-Resultado omitido. Foi gerado o arquivo `tab_aacp.xlsx`.
+Resultado omitido. Foi gerado o arquivo `02.results/tables/tbl02.xlsx`.
+
+\newpage
+
+# 12. Correlação de Spearman
+
+Nesta seção, são analisadas correlações (de Spearman) entre as prevalência dos grupos de malformações congênitas e indicadores socioeconômicos, cuja unidade de análise é a UF. Foram considerados os indicadores IDHM, Esperança de vida ao nascer e Índice de Gini, todos mensurados pela PNAD 2020, do IBGE, e extraídos da plataforma Atlas Brasil.
+
+```{r}
+# carregando a base de indicadores socioeconomicos
+
+d_atlas20 <- readxl::read_xlsx("01.data/atlas/atlas2020.xlsx")
+
+# unindo bases de prevalencia e indicadores
+
+d_inds <- d_geobr |> 
+  left_join(d_atlas20, by = join_by(name_state == Territorialidades)) |> 
+  dplyr::select(name_state, name_region, grupo_eur, prev, `Índice de Gini 2020`, `Esperança de vida ao nascer 2020`, `IDHM 2020`) |> 
+  clean_names()
+```
+
+### Tabela das correlações de Spearman
+
+```{r}
+# calculando correlacao de spearman entre prevalencias e indicadores
+
+corr <- d_inds |> 
+  group_by(grupo_eur) |> 
+  summarise(
+    #idhm
+    rho_idhm = round(cor(prev, idhm_2020, method = "spearman"), 3),
+    p_idhm = round(cor.test(prev, idhm_2020, method = "spearman")$p.value, 3),
+    #gini
+    rho_gini = round(cor(prev, indice_de_gini_2020, method = "spearman"), 3),
+    p_gini = round(cor.test(prev, indice_de_gini_2020, method = "spearman")$p.value, 3),
+    # esperanca de vida
+    rho_ev = round(cor(prev, esperanca_de_vida_ao_nascer_2020, method = "spearman"), 3),
+    p_ev = round(cor.test(prev, esperanca_de_vida_ao_nascer_2020, method = "spearman")$p.value, 3)
+  )
+
+# transformando dados de correlacoes no formato longo e organizando base
+
+corr_long <- corr |> 
+  # formato longo
+  pivot_longer(
+    cols = c(rho_idhm, rho_gini, rho_ev, p_idhm, p_gini, p_ev),
+    names_to = c(".value", "indicador"), names_sep = "_"
+  ) |> 
+  # reordenando va de grupos
+  mutate(
+    grupo_eur = factor(
+      grupo_eur,
+      levels = c(
+        "Cardiopatias",
+        "Defeitos de parede abdominal",
+        "Fendas oro-faciais",
+        "Genitália",
+        "Membros",
+        "Olhos",
+        "Orelha, face e pescoço",
+        "Respiratórias",
+        "Sistema digestivo",
+        "Sistema nervoso",
+        "Sistema urinário",
+        "Outros"
+      )
+    ),
+    # invertendo va ordem de va de grupos
+    grupo_eur = fct_rev(grupo_eur),
+    # reordenando va de indicadores
+    indicador = factor(indicador, levels = c("idhm", "ev", "gini")),
+    # recodificando va de indicadores
+    indicador = fct_recode(
+      indicador, 
+      "IDHM"="idhm",
+      "Esperança de\nvida ao nascer"="ev",
+      "Índice de Gini"="gini"
+    ),
+    # ajusta valor-p por fdr
+    p_fdr = round(p.adjust(p, method = "fdr"), 3),
+    # incuindo 'x' nas correlacoes nao significantes
+    label = ifelse(p_fdr < 0.05, sprintf("%.2f", rho), paste0(sprintf("%.2f", rho), " ×")),
+    # criando va logica de significancia
+    sig = p_fdr < 0.05
+  ) |> 
+  # transforma valor-p 0 em <0,001
+  mutate(across(starts_with("p"), ~ ifelse(. == 0, "<0.001", sprintf("%.3f", .))))
+```
+
+### Gráfico das correlações de Spearman
+
+```{r}
+# mapa de calor das correlacoes de spearman
+
+ggplot(corr_long, aes(indicador, grupo_eur, fill = rho)) +
+  geom_tile() +
+  geom_text(aes(label = label), color = "#000000", size = 5) +
+  geom_segment(
+    data = subset(corr_long, !sig),
+    aes(
+      x = as.numeric(indicador) - 0.1, xend = as.numeric(indicador) + 0.1,
+      y = grupo_eur, yend = grupo_eur
+    ),
+    alpha = 0.6, linewidth = 0.5, inherit.aes = FALSE
+  ) +
+  theme_bw() +
+  scale_fill_gradientn(
+    limits = c(-1, 1), breaks = c(-1, -0.5, 0, 0.5, 1),
+    colours = wes_palette("Zissou1", 100, type = "continuous")
+  ) + 
+  labs(x = "Indicador", y = "Grupo", fill = expression(rho)) +
+  theme(
+    text = element_text(size = 20),
+    axis.title.x = element_blank(),
+    legend.position = "top",
+    legend.key.width = unit(2, 'cm')
+  )
+```
 
 
+\newpage
+
+# 13. Índice de Moran
+
+Nesta seção, foi aplicado o Índice de Moran Global (univariado e multivariado) a fim de analisar a distribuição espacial das prevalências de grupos de malformações congênitas entre as UFs. A análise univariada investigou se estados com prevalências semelhantes tendem a estar próximos, enquanto a análise multivariada avaliou a relação entre essas prevalências e os indicadores socioeconômicos IDHM, Esperança de vida ao nascer e Índice de Gini de 2020.  
+
+```{r}
+# transformando a base de indicadores em data frame/tibble
+
+d_inds <- d_inds |> st_drop_geometry()
+
+# obtendo coordenadas geograficas das ufs
+
+br <- read_state(code_state = "all", year = 2020, showProgress = FALSE)
+
+# criando lista de vizinhos com base em regiões que compartilham pontos de fronteira
+
+viz <- poly2nb(br)
+
+# calculando matriz de pesos espaciais w (estrutura de rainha)
+
+lw <- nb2listw(
+  viz,
+  style = "W",
+  zero.policy = TRUE
+)
+```
+
+### Índice de Moran Global univariado
+
+```{r}
+# extraindo os nomes dos grupos
+grupos <- unique(d_inds$grupo_eur)
+
+# criando data frame para os resultados
+resultado_moran_uni <- data.frame()
+
+for(g in grupos){
+  # filtra cada um dos grupos
+  dados_g <- d_inds |> filter(grupo_eur == g)
+
+  # une bases de coordenadas e de indicadores por grupo
+  mapa_g <- br |> left_join(dados_g, by = "name_state")
+
+  # calculo do indice de moran global univariado com permutacao mc
+  teste <- moran.mc(
+    mapa_g$prev,
+    lw,
+    nsim = 9999,
+    zero.policy = TRUE
+  )
+
+  # resultado final
+  resultado_moran_uni <- rbind(
+    resultado_moran_uni,
+    data.frame(
+      grupo = g,
+      moran_I = teste$statistic,
+      p_valor = teste$p.value
+    )
+  )
+}
+
+resultado_moran_uni <- resultado_moran_uni |> 
+  mutate(
+    #ajuste por metodo fdr no valor-p
+    p_fdr = round(p.adjust(p_valor, method = "fdr"), 3),
+    #va indicadora de significancia
+    sig = ifelse(p_fdr < 0.05, "s", "n")
+  ) |> 
+  # transforma valor-p 0 em <0,001
+  mutate(across(starts_with("p_"), ~ ifelse(. == 0, "<0.001", sprintf("%.3f", .)))) |> 
+  # valores i em ordem decrescente
+  arrange(desc(moran_I))
+```
+
+```{r}
+# grafico dos indices de moran global univariado
+
+ggplot(resultado_moran_uni, aes(x = moran_I, y = reorder(grupo, moran_I))) +
+  geom_point(aes(fill = p_fdr < 0.05), shape = 21, size = 4, color = "#3b9ab2") +
+  labs(
+    x = "Índice de Moran I Global",
+    y = "Grupos",
+    fill = expression("Significativo (" * italic(p)[FDR] < 0.05 * ")")
+  ) +
+  scale_fill_manual(
+    values = c("TRUE" = "#3b9ab2", "FALSE" = "#ffffff"),
+    labels = c("FALSE" = "Não", "TRUE" = "Sim")
+  ) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  theme_bw() +
+  theme(text = element_text(size = 20))
+```
+
+### Índice de Moran Global multivariado
+
+```{r}
+# criando funcao para calcular testes de moran global multivariado por permutação
+
+moran_multi_perm <- function(x, y, listw, nsim = 999){
+  #padroniza vas
+  x <- as.numeric(scale(x))
+  y <- as.numeric(scale(y))
+  
+  #calcula media dos indicadores dos vizinhos
+  Wy <- lag.listw(listw, y, zero.policy = TRUE)
+  
+  #calcula a media de i
+  I_obs <- mean(x * Wy, na.rm = TRUE)
+  
+  #teste por permutacao
+  I_perm <- replicate(nsim, {
+    y_perm <- sample(y)
+    Wy_perm <- lag.listw(listw, y_perm, zero.policy = TRUE)
+    mean(x * Wy_perm, na.rm = TRUE)
+  })
+  
+  #valores-p de testes bilaterais
+  p_valor <- (sum(abs(I_perm) >= abs(I_obs)) + 1) / (nsim + 1)
+  
+  data.frame(
+    I = I_obs,
+    p = p_valor
+  )
+}
+
+indicadores <- c(
+  "idhm_2020",
+  "esperanca_de_vida_ao_nascer_2020",
+  "indice_de_gini_2020"
+)
+
+# criando data frame para os resultados
+resultado_moran_multi <- data.frame()
+
+for(g in grupos){
+  # filtrando grupo de anomalias
+  temp <- d_inds |> 
+    filter(grupo_eur == g) |> 
+    right_join(st_drop_geometry(br) |> dplyr::select(name_state), by = "name_state") |> 
+    arrange(match(name_state, br$name_state))
+  
+  for(ind in indicadores){
+    #aplicando teste permutado
+    teste <- moran_multi_perm(x = temp$prev, y = temp[[ind]], listw = lw)
+    
+    #resultado final
+    resultado_moran_multi <- rbind(
+      resultado_moran_multi,
+      data.frame(
+        grupo = g,
+        indicador = ind,
+        I = round(teste$I, 3),
+        p = round(teste$p, 3)
+      )
+    )
+  }
+}
+
+resultado_moran_multi <- resultado_moran_multi |> 
+  mutate(
+    #ajuste por metodo fdr no valor-p
+    p_fdr = round(p.adjust(p, method = "fdr"), 3),
+    #va indicadora de significancia
+    sig = ifelse(p_fdr < 0.05, TRUE, FALSE),
+    #reordena niveis da va de grupos
+    grupo = factor(
+      grupo,
+      levels = c(
+        "Cardiopatias",
+        "Defeitos de parede abdominal",
+        "Fendas oro-faciais",
+        "Genitália",
+        "Membros",
+        "Olhos",
+        "Orelha, face e pescoço",
+        "Respiratórias",
+        "Sistema digestivo",
+        "Sistema nervoso",
+        "Sistema urinário",
+        "Outros"
+      )
+    ),
+    #inverte ordem da va de grupo
+    grupo = fct_rev(grupo),
+    #reordena niveis da va de indicadores
+    indicador = factor(indicador, levels = c("idhm_2020", "esperanca_de_vida_ao_nascer_2020", "indice_de_gini_2020")),
+    #recodifica va de indicadores
+    indicador = fct_recode(
+      indicador, 
+      "IDHM"="idhm_2020",
+      "Esperança de\nvida ao nascer"="esperanca_de_vida_ao_nascer_2020",
+      "Índice de Gini"="indice_de_gini_2020"
+    )
+  )
+```
+
+```{r}
+# grafico dos indices de moran global multivariado
+
+ggplot(resultado_moran_multi, aes(indicador, grupo, fill = I)) +
+  geom_tile() +
+  geom_text(aes(label = sprintf("%.2f", I)), color = "#000000", size = 5) +
+  geom_segment(
+    data = subset(resultado_moran_multi, !sig),
+    aes(
+      x = as.numeric(factor(indicador)) - 0.1, xend = as.numeric(factor(indicador)) + 0.1,
+      y = grupo, yend = grupo
+    ),
+    inherit.aes = FALSE, linewidth = 0.4, alpha = 0.6
+  ) +
+  theme_bw() +
+  scale_fill_gradientn(
+    limits = c(-1, 1), breaks = c(-1, -0.5, 0, 0.5, 1),
+    colours = wes_palette("Zissou1", 100, type = "continuous")
+  ) + 
+  labs(x = "Indicador", y = "Grupo", fill = expression(I)) +
+  theme(
+    text = element_text(size = 20),
+    axis.title.x = element_blank(),
+    legend.position = "top",
+    legend.key.width = unit(2, 'cm')
+  )
+```
