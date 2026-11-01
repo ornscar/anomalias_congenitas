@@ -12,7 +12,7 @@ SINASC - `01.data/`
 
 ### Script
 
-Exploratory analysis - `anom.Rmd`
+Descriptive analysis - `anom.Rmd`
 
 ACP/AACP analysis - `anom_acp-aacp.Rmd`
 
@@ -21,6 +21,10 @@ ACP/AACP analysis - `anom_acp-aacp.Rmd`
 Tables - `02.results/tables/`
 
 Figures - `02.results/figures/`
+
+Others [MASTER'S THESIS] - `02.results/others_masters-thesis/`
+
+Paper - `journal.pone.0323654.pdf`
 
 ### Software
 
