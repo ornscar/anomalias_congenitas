@@ -22,8 +22,6 @@ Tables - `02.results/tables/`
 
 Figures - `02.results/figures/`
 
-Others [MASTER'S THESIS] - `02.results/others_masters-thesis/`
-
 Paper - `journal.pone.0323654.pdf`
 
 ### Software
